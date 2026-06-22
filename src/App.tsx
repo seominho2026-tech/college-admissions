@@ -209,19 +209,18 @@ export default function App() {
       alert("다운로드할 데이터가 없습니다.");
       return;
     }
-    const headers = ['학년도', '지역', '대학명', '전형유형', '학과', '환산등급', '환산점수', '합불여부', '전교과', '국수영시', '국영수과'];
+    const headers = ['학년도', '지역', '대학명', '전형유형', '세부유형', '학과', '환산등급', '환산점수', '합불여부', '전교과'];
     const rows = filteredRecords.map(r => [
       r.year,
       `"${r.region}"`,
       `"${r.university}"`,
       `"${r.admissionType}"`,
+      `"${r.subType}"`,
       `"${r.department}"`,
       r.grade,
       r.score || '',
       `"${r.status}"`,
-      r.allSubjects || '',
-      r.korMathEngSoc || '',
-      r.korEngMathSci || ''
+      r.allSubjects || ''
     ]);
 
     const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -623,6 +622,9 @@ function getSushiData() {
                       <th className="px-4 py-3 cursor-pointer select-none hover:text-blue-900" onClick={() => handleSort('admissionType')}>
                         <div className="flex items-center gap-1">전형유형 <ArrowUpDown className="h-3 w-3" /></div>
                       </th>
+                      <th className="px-4 py-3 cursor-pointer select-none hover:text-blue-900" onClick={() => handleSort('subType')}>
+                        <div className="flex items-center gap-1">세부유형 <ArrowUpDown className="h-3 w-3" /></div>
+                      </th>
                       <th className="px-4 py-3 cursor-pointer select-none hover:text-blue-900" onClick={() => handleSort('department')}>
                         <div className="flex items-center gap-1">학과 <ArrowUpDown className="h-3 w-3" /></div>
                       </th>
@@ -633,8 +635,6 @@ function getSushiData() {
                         <div className="flex items-center gap-1 text-center justify-center">합불여부 <ArrowUpDown className="h-3 w-3" /></div>
                       </th>
                       <th className="px-4 py-3 text-center">전교과</th>
-                      <th className="px-4 py-3 text-center">국수영시</th>
-                      <th className="px-4 py-3 text-center">국영수과</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -649,6 +649,7 @@ function getSushiData() {
                           </td>
                           <td className="px-4 py-3 font-semibold text-slate-700">{r.university}</td>
                           <td className="px-4 py-3 text-slate-500 font-medium">{r.admissionType}</td>
+                          <td className="px-4 py-3 text-slate-500 font-medium">{r.subType}</td>
                           <td className="px-4 py-3 font-medium text-blue-700">{r.department}</td>
                           <td className="px-4 py-3 font-mono font-bold text-slate-900 text-sm text-center">
                             {r.grade.toFixed(2)}
@@ -670,17 +671,11 @@ function getSushiData() {
                           <td className="px-4 py-3 text-center font-mono text-slate-500">
                             {r.allSubjects !== null ? r.allSubjects.toFixed(2) : '-'}
                           </td>
-                          <td className="px-4 py-3 text-center font-mono text-slate-500">
-                            {r.korMathEngSoc !== null ? r.korMathEngSoc.toFixed(2) : '-'}
-                          </td>
-                          <td className="px-4 py-3 text-center font-mono text-slate-500">
-                            {r.korEngMathSci !== null ? r.korEngMathSci.toFixed(2) : '-'}
-                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={10} className="px-5 py-12 text-center text-slate-400 text-xs italic">
+                        <td colSpan={9} className="px-5 py-12 text-center text-slate-400 text-xs italic">
                           설정한 필터 조건에 부합하는 수시 세부 결과가 존재하지 않습니다.
                         </td>
                       </tr>
