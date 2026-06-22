@@ -56,7 +56,7 @@ export default function App() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(20);
 
   // GAS Copied Tooltip states
   const [copiedCodeGs, setCopiedCodeGs] = useState<boolean>(false);
@@ -703,7 +703,7 @@ function getSushiData() {
                   >
                     <option value={5}>5개씩 보기</option>
                     <option value={10}>10개씩 보기</option>
-                    <option value={25}>25개씩 보기</option>
+                    <option value={20}>20개씩 보기</option>
                     <option value={50}>50개씩 보기</option>
                   </select>
 
