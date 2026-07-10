@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   fetchSpreadsheetData, 
-  StudentRecord, 
-  FALLBACK_SAMPLE_DATA 
+  StudentRecord 
 } from './utils/dataLoader';
 import { SushiScatterChart } from './components/SushiScatterChart';
 import { 
@@ -29,17 +28,32 @@ import {
   FileText
 } from 'lucide-react';
 
+// Safe LocalStorage Wrapper to prevent sandbox/iframe security exceptions
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      console.warn("Storage access denied in iframe/sandbox environment:", e);
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn("Storage write denied in iframe/sandbox environment:", e);
+    }
+  }
+};
+
 export default function App() {
   const defaultSpreadsheetId = "17BPrRpIKTw8LRBnT7vPQgTOs7Nk1cy7278zn_5c2_gQ";
   
   // Storage & State
-  const [spreadsheetId, setSpreadsheetId] = useState<string>(() => {
-    return localStorage.getItem('sushi_spreadsheet_id') || defaultSpreadsheetId;
-  });
   const [records, setRecords] = useState<StudentRecord[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [isUsingFallback, setIsUsingFallback] = useState<boolean>(false);
 
   // Input Filters
   const [filterYear, setFilterYear] = useState<string>('');
@@ -47,6 +61,8 @@ export default function App() {
   const [filterUniversity, setFilterUniversity] = useState<string>('');
   const [filterAdmissionType, setFilterAdmissionType] = useState<string>('');
   const [filterDepartment, setFilterDepartment] = useState<string>('');
+  const [uniInput, setUniInput] = useState<string>('');
+  const [deptInput, setDeptInput] = useState<string>('');
   const [minGrade, setMinGrade] = useState<number>(1.0);
   const [maxGrade, setMaxGrade] = useState<number>(9.0);
 
@@ -63,27 +79,27 @@ export default function App() {
   const [copiedIndexHtml, setCopiedIndexHtml] = useState<boolean>(false);
 
   // Load Data
-  const loadData = async (targetId: string) => {
+  const loadData = async (targetIdOrUrl: string) => {
     setLoading(true);
     setError(null);
-    setIsUsingFallback(false);
     try {
-      const fetched = await fetchSpreadsheetData(targetId);
+      const fetched = await fetchSpreadsheetData(targetIdOrUrl);
       setRecords(fetched);
-      localStorage.setItem('sushi_spreadsheet_id', targetId);
     } catch (err: any) {
-      console.warn("Spreadsheet load failed. Switching to high-fidelity offline fallback data.", err);
-      // Use the fallback data if fetch fails
-      setRecords(FALLBACK_SAMPLE_DATA);
-      setIsUsingFallback(true);
+      console.warn("Spreadsheet load failed:", err);
+      setError(err.message || String(err));
+      setRecords([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadData(spreadsheetId);
-  }, []);
+  const handleSearchSubmit = async () => {
+    await loadData(defaultSpreadsheetId);
+    setFilterUniversity(uniInput);
+    setFilterDepartment(deptInput);
+    setCurrentPage(1);
+  };
 
   // Filter Reset
   const handleResetFilters = () => {
@@ -92,6 +108,8 @@ export default function App() {
     setFilterUniversity('');
     setFilterAdmissionType('');
     setFilterDepartment('');
+    setUniInput('');
+    setDeptInput('');
     setMinGrade(1.0);
     setMaxGrade(9.0);
     setCurrentPage(1);
@@ -134,21 +152,21 @@ export default function App() {
   const filteredRecords = useMemo(() => {
     return records.filter(record => {
       // 0. Year
-      if (filterYear && String(record.year) !== filterYear) return false;
+      if (filterYear && String(record.year || '') !== filterYear) return false;
 
       // 1. Region
-      if (filterRegion && record.region !== filterRegion) return false;
+      if (filterRegion && (record.region || '') !== filterRegion) return false;
       
       // 2. University Search
-      if (filterUniversity && !record.university.toLowerCase().includes(filterUniversity.toLowerCase().trim())) {
+      if (filterUniversity && !(record.university || '').toLowerCase().includes(filterUniversity.toLowerCase().trim())) {
         return false;
       }
 
       // 3. AdmissionType Filter
-      if (filterAdmissionType && record.admissionType !== filterAdmissionType) return false;
+      if (filterAdmissionType && (record.admissionType || '') !== filterAdmissionType) return false;
 
       // 3.5 Department Search
-      if (filterDepartment && !record.department.toLowerCase().includes(filterDepartment.toLowerCase().trim())) {
+      if (filterDepartment && !(record.department || '').toLowerCase().includes(filterDepartment.toLowerCase().trim())) {
         return false;
       }
 
@@ -236,21 +254,22 @@ export default function App() {
   // Dynamic Statistics
   const stats = useMemo(() => {
     const total = filteredRecords.length;
-    const passes = filteredRecords.filter(r => r.status.includes('합'));
+    const passes = filteredRecords.filter(r => (r.status || '').includes('합'));
     const passCount = passes.length;
     const passRate = total > 0 ? parseFloat(((passCount / total) * 100).toFixed(1)) : 0;
     
     let avgPassGrade = 0;
-    if (passCount > 0) {
-      const sum = passes.reduce((acc, curr) => acc + curr.grade, 0);
-      avgPassGrade = parseFloat((sum / passCount).toFixed(2));
+    const validPasses = passes.filter(p => p.grade !== null && p.grade !== undefined && typeof p.grade === 'number' && !isNaN(p.grade));
+    if (validPasses.length > 0) {
+      const sum = validPasses.reduce((acc, curr) => acc + curr.grade, 0);
+      avgPassGrade = parseFloat((sum / validPasses.length).toFixed(2));
     }
 
     return {
       total,
       passCount,
       passRate,
-      avgPassGrade: avgPassGrade || null
+      avgPassGrade: (avgPassGrade && !isNaN(avgPassGrade)) ? avgPassGrade : null
     };
   }, [filteredRecords]);
 
@@ -361,28 +380,17 @@ function getSushiData() {
 
       {/* Main Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24 bg-white border border-slate-200 rounded-xl shadow-sm text-center">
             <RefreshCw className="h-10 w-10 text-blue-900 animate-spin mb-4" />
             <h3 className="text-base font-bold text-slate-900">데이터를 로딩하고 있으니 잠시 기다려 주십시오</h3>
             <p className="text-xs text-slate-500 mt-1">
-              실시간 구글 스프레드시트의 수시 분석 데이터를 동기화하고 있습니다.
+              구글 스프레드시트의 수시 분석 데이터를 동기화하고 있습니다.
             </p>
           </div>
         ) : (
           <>
-            {isUsingFallback && (
-              <div className="mb-6 bg-amber-50/70 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 flex items-start gap-2.5 shadow-xs">
-                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold text-amber-950">원격 구글 스프레드시트 로드 제안 및 오프라인 상태 경고</p>
-                  <p className="text-amber-800/90 mt-0.5 leading-relaxed">
-                    구글 시트 API CORS 제약이나 비공개 설정으로 인해 연결이 지연되어, 브라우저가 사전에 검증된 의과대학 수시 결과 고품질 Fallback 샘플 데이터를 로드했습니다. 실제 수시 합격 등급 분포 및 분석 기능은 100% 정상 작동 중입니다.
-                  </p>
-                </div>
-              </div>
-            )}
-
             <div className="space-y-6">
             
             {/* Top Row: Responsive Filters Grid */}
@@ -401,7 +409,7 @@ function getSushiData() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
                 {/* 0. Year Selector */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">학년도 선택</label>
@@ -454,10 +462,11 @@ function getSushiData() {
                     <input
                       type="text"
                       list="uni-datalist"
-                      value={filterUniversity}
-                      onChange={(e) => { setFilterUniversity(e.target.value); setCurrentPage(1); }}
+                      value={uniInput}
+                      onChange={(e) => setUniInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSearchSubmit(); }}
                       placeholder="대학명 검색 (예: 서울대학교)"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-slate-800 font-medium"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-slate-800 font-semibold"
                     />
                     <datalist id="uni-datalist">
                       {universities.map(u => (
@@ -474,10 +483,11 @@ function getSushiData() {
                   <div className="relative">
                     <input
                       type="text"
-                      value={filterDepartment}
-                      onChange={(e) => { setFilterDepartment(e.target.value); setCurrentPage(1); }}
+                      value={deptInput}
+                      onChange={(e) => setDeptInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSearchSubmit(); }}
                       placeholder="학과 키워드 입력 (예: 의예)"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-slate-800 font-medium"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-slate-800 font-semibold"
                     />
                     <Building className="absolute right-3 top-2.5 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
                   </div>
@@ -520,11 +530,42 @@ function getSushiData() {
                     />
                   </div>
                 </div>
+
+                {/* 5. Search Trigger Button */}
+                <div className="space-y-1.5 flex flex-col justify-end">
+                  <label className="hidden xl:block text-xs font-bold text-slate-500 uppercase tracking-wider">&nbsp;</label>
+                  <button
+                    onClick={handleSearchSubmit}
+                    className="w-full bg-blue-900 hover:bg-blue-950 text-white font-black h-[34px] rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs hover:shadow-md cursor-pointer"
+                  >
+                    <Search className="h-4.5 w-4.5" />
+                    조회하기
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Statistics Row Card Layout */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {records.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 px-6 bg-white border border-slate-200 rounded-xl shadow-sm text-center animate-fade-in">
+                <Database className="h-12 w-12 text-slate-300 mb-4 animate-pulse" />
+                <h3 className="text-base font-bold text-slate-900">조회할 준비가 되었습니다</h3>
+                <p className="text-xs text-slate-500 mt-1.5 max-w-lg mx-auto leading-relaxed font-semibold">
+                  수시 분석 데이터를 조회할 준비가 되었습니다. 상단 필터 값을 지정하신 후 우측의 <span className="font-extrabold text-blue-900">"조회하기"</span> 버튼을 클릭하면 구글 스프레드시트의 최신 입시결과를 안전하게 불러옵니다.
+                </p>
+                {error && (
+                  <div className="mt-5 bg-rose-50/80 border border-rose-200 rounded-lg p-3.5 text-xs text-rose-900 max-w-lg text-left shadow-xs">
+                    <p className="font-extrabold text-rose-950">스프레드시트 동기화 실패</p>
+                    <p className="text-rose-850 mt-0.5 font-semibold font-mono">{error}</p>
+                    <p className="text-slate-500 text-[11px] mt-2 leading-relaxed">
+                      💡 **해결 방법**: 연동된 구글 스프레드시트의 공유 권한이 '링크가 있는 모든 사용자에게 뷰어'로 지정되어 있는지 설정 상태를 확인해 주세요.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Statistics Row Card Layout */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Stat Card 1: Total Apps */}
               <div className="bg-white border-l-4 border-l-blue-600 border border-slate-200 p-4 rounded-xl shadow-sm flex justify-between items-center relative overflow-hidden">
                 <div className="space-y-1">
@@ -573,7 +614,7 @@ function getSushiData() {
                   </p>
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black text-slate-900 tracking-tight">
-                      {stats.avgPassGrade !== null ? stats.avgPassGrade.toFixed(2) : "-.-"}
+                      {stats.avgPassGrade !== null && stats.avgPassGrade !== undefined && !isNaN(stats.avgPassGrade) ? stats.avgPassGrade.toFixed(2) : "-.-"}
                     </span>
                     <span className="text-xs font-semibold text-orange-600 font-mono font-bold">GRADE</span>
                   </div>
@@ -652,24 +693,24 @@ function getSushiData() {
                           <td className="px-4 py-3 text-slate-500 font-medium">{r.subType}</td>
                           <td className="px-4 py-3 font-medium text-blue-700">{r.department}</td>
                           <td className="px-4 py-3 font-mono font-bold text-slate-900 text-sm text-center">
-                            {r.grade.toFixed(2)}
+                            {typeof r.grade === 'number' && !isNaN(r.grade) ? r.grade.toFixed(2) : r.grade || '-'}
                           </td>
                           <td className="px-4 py-3 text-center">
                             <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                              r.status === '합'
+                              (r.status || '') === '합'
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                : r.status.includes('충')
+                                : (r.status || '').includes('충')
                                 ? 'bg-cyan-50 text-cyan-700 border border-cyan-100'
                                 : 'bg-rose-50 text-rose-700 border border-rose-100'
                             }`}>
                               <span className={`h-1.5 w-1.5 rounded-full ${
-                                r.status === '합' ? 'bg-emerald-500' : r.status.includes('충') ? 'bg-cyan-500' : 'bg-rose-500'
+                                (r.status || '') === '합' ? 'bg-emerald-500' : (r.status || '').includes('충') ? 'bg-cyan-500' : 'bg-rose-500'
                               }`}></span>
-                              {r.status === '합' ? '합격' : r.status.includes('충') ? '충원' : '불합'}
+                              {(r.status || '') === '합' ? '합격' : (r.status || '').includes('충') ? '충원' : '불합'}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-center font-mono text-slate-500">
-                            {r.allSubjects !== null ? r.allSubjects.toFixed(2) : '-'}
+                            {r.allSubjects !== null && r.allSubjects !== undefined && typeof r.allSubjects === 'number' && !isNaN(r.allSubjects) ? r.allSubjects.toFixed(2) : '-'}
                           </td>
                         </tr>
                       ))
@@ -736,6 +777,8 @@ function getSushiData() {
                 </div>
               </div>
             </section>
+              </>
+            )}
           </div>
           </>
         )}

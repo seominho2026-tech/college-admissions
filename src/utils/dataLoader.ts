@@ -23,9 +23,35 @@ export interface StudentRecord {
   science: number | null; // 과학
 }
 
-export async function fetchSpreadsheetData(spreadsheetId: string): Promise<StudentRecord[]> {
-  const sheetName = "수시";
-  const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+/**
+ * Extracts spreadsheetId and gid from a full Google Sheets URL or raw ID
+ */
+export function extractSpreadsheetParams(input: string): { spreadsheetId: string; gid: string | null } {
+  const str = input.trim();
+  if (str.includes("docs.google.com/spreadsheets")) {
+    const idMatch = str.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    const gidMatch = str.match(/[?&]gid=([0-9]+)/) || str.match(/#gid=([0-9]+)/);
+    return {
+      spreadsheetId: idMatch ? idMatch[1] : str,
+      gid: gidMatch ? gidMatch[1] : null
+    };
+  }
+  return {
+    spreadsheetId: str,
+    gid: null
+  };
+}
+
+export async function fetchSpreadsheetData(spreadsheetIdOrUrl: string): Promise<StudentRecord[]> {
+  const { spreadsheetId, gid } = extractSpreadsheetParams(spreadsheetIdOrUrl);
+  
+  // Use gid if present, otherwise fallback to sheet name "수시"
+  let url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json`;
+  if (gid) {
+    url += `&gid=${gid}`;
+  } else {
+    url += `&sheet=${encodeURIComponent("수시")}`;
+  }
 
   try {
     const response = await fetch(url);

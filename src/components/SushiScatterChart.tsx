@@ -21,10 +21,31 @@ export function SushiScatterChart({ data }: ScatterChartProps) {
     );
   }
 
+  // Safe min/max helpers that don't use spread to avoid Call Stack Size Exceeded errors on large datasets
+  const safeMin = (arr: number[], fallback: number): number => {
+    if (arr.length === 0) return fallback;
+    let min = arr[0];
+    for (let i = 1; i < arr.length; i++) {
+      if (arr[i] < min) min = arr[i];
+    }
+    return min;
+  };
+
+  const safeMax = (arr: number[], fallback: number): number => {
+    if (arr.length === 0) return fallback;
+    let max = arr[0];
+    for (let i = 1; i < arr.length; i++) {
+      if (arr[i] > max) max = arr[i];
+    }
+    return max;
+  };
+
   // Calculate X bounds (환산등급 - 1.0 is best, 9.0 is worst)
-  const grades = data.map((r) => r.grade);
-  const minGradeInSubset = Math.min(...grades);
-  const maxGradeInSubset = Math.max(...grades);
+  const grades = data
+    .map((r) => r.grade)
+    .filter((g) => typeof g === 'number' && !isNaN(g));
+  const minGradeInSubset = safeMin(grades, 1.0);
+  const maxGradeInSubset = safeMax(grades, 9.0);
 
   // Pad the range slightly for premium visual distribution
   const marginX = 0.1;
@@ -33,10 +54,10 @@ export function SushiScatterChart({ data }: ScatterChartProps) {
   const rangeX = maxX - minX || 1.0;
 
   // Calculate Y bounds if using scores
-  const scoreRecords = data.filter((r) => r.score !== null);
+  const scoreRecords = data.filter((r) => r.score !== null && r.score !== undefined && typeof r.score === 'number' && !isNaN(r.score));
   const scores = scoreRecords.map((r) => r.score as number);
-  const minScoreInSubset = scores.length ? Math.min(...scores) : 0;
-  const maxScoreInSubset = scores.length ? Math.max(...scores) : 1000;
+  const minScoreInSubset = safeMin(scores, 0);
+  const maxScoreInSubset = safeMax(scores, 1000);
   
   // Padding for score Y-axis
   const minY = Math.max(0, minScoreInSubset * 0.95);
@@ -56,31 +77,44 @@ export function SushiScatterChart({ data }: ScatterChartProps) {
 
   // Helper mapping functions
   const getXCoord = (grade: number) => {
+    if (isNaN(grade) || isNaN(minX) || isNaN(rangeX) || rangeX === 0) {
+      return paddingLeft;
+    }
     // 1.0 is highest, 9.0 is lowest, but people expect to see 1.0 on the left in Korea, so:
     // Left side = minX (best/lowest GPA), Right side = maxX (worst/highest GPA)
     const ratio = (grade - minX) / rangeX;
-    return paddingLeft + ratio * plotWidth;
+    const computed = paddingLeft + ratio * plotWidth;
+    return isNaN(computed) ? paddingLeft : computed;
   };
 
   const getYCoord = (record: StudentRecord, index: number) => {
     if (chartMode === 'scores') {
-      const score = record.score !== null ? record.score : minY + rangeY / 2;
+      const score = record.score !== null && record.score !== undefined && !isNaN(record.score) 
+        ? record.score 
+        : minY + rangeY / 2;
+      
+      if (isNaN(score) || isNaN(minY) || isNaN(rangeY) || rangeY === 0) {
+        return paddingTop + plotHeight / 2;
+      }
       const ratio = (score - minY) / rangeY;
       // Invert Y because SVG coordinates start from top
-      return paddingTop + plotHeight - ratio * plotHeight;
+      const computed = paddingTop + plotHeight - ratio * plotHeight;
+      return isNaN(computed) ? paddingTop + plotHeight / 2 : computed;
     } else {
       // Categorical status bands
       // Band positions: Pass (합) = 25%, Wait/Pass2 (합(충)) = 50%, Fail (불) = 75%
       let bandRatio = 0.75; // Default fail
-      if (record.status === '합') {
+      const statusStr = record.status || '';
+      if (statusStr === '합') {
         bandRatio = 0.25;
-      } else if (record.status.includes('충') || record.status.includes('합(충)')) {
+      } else if (statusStr.includes('충') || statusStr.includes('합(충)')) {
         bandRatio = 0.50;
       }
 
       // Add a clean deterministic jitter to prevent overlap on the same grade
       const jitterAmount = Math.sin(index * 984.55) * 22; // ±22px jitter
-      return paddingTop + bandRatio * plotHeight + jitterAmount;
+      const computed = paddingTop + bandRatio * plotHeight + jitterAmount;
+      return isNaN(computed) ? paddingTop + plotHeight / 2 : computed;
     }
   };
 
@@ -242,11 +276,12 @@ export function SushiScatterChart({ data }: ScatterChartProps) {
             let fillColor = 'bg-rose-500';
             let strokeColor = 'border-rose-600';
             let colorKey = 'Rose';
-            if (record.status === '합') {
+            const statusStr = record.status || '';
+            if (statusStr === '합') {
               fillColor = 'fill-emerald-500';
               strokeColor = '#10b981';
               colorKey = '#10b981';
-            } else if (record.status.includes('충') || record.status.includes('합(충)')) {
+            } else if (statusStr.includes('충') || statusStr.includes('합(충)')) {
               fillColor = 'fill-cyan-500';
               strokeColor = '#06b6d4';
               colorKey = '#06b6d4';
@@ -299,16 +334,16 @@ export function SushiScatterChart({ data }: ScatterChartProps) {
               </span>
               <span
                 className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
-                  hoveredPoint.record.status === '합'
+                  (hoveredPoint.record.status || '') === '합'
                     ? 'bg-emerald-500/20 text-emerald-400'
-                    : hoveredPoint.record.status.includes('충')
+                    : (hoveredPoint.record.status || '').includes('충')
                     ? 'bg-cyan-500/20 text-cyan-400'
                     : 'bg-rose-500/20 text-rose-400'
                 }`}
               >
-                {hoveredPoint.record.status === '합'
+                {(hoveredPoint.record.status || '') === '합'
                   ? '최초합격'
-                  : hoveredPoint.record.status.includes('충')
+                  : (hoveredPoint.record.status || '').includes('충')
                   ? '충원합격'
                   : '불합격'}
               </span>
